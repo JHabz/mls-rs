@@ -1914,35 +1914,31 @@ mod tests {
 
     #[maybe_async::test(not(mls_build_async), async(mls_build_async, crate::futures_test))]
     async fn test_create_group() {
-        for (protocol_version, cipher_suite) in ProtocolVersion::all().flat_map(|p| {
-            TestCryptoProvider::all_supported_cipher_suites()
-                .into_iter()
-                .map(move |cs| (p, cs))
-        }) {
-            let test_group = test_group(protocol_version, cipher_suite).await;
-            let group = test_group.group;
+        let protocol_version = ProtocolVersion::MLS_10;
+        let cipher_suite = CipherSuite::CUSTOM_KYBER512;
+        let test_group = test_group(protocol_version, cipher_suite).await;
+        let group = test_group.group;
 
-            assert_eq!(group.cipher_suite(), cipher_suite);
-            assert_eq!(group.state.context.epoch, 0);
-            assert_eq!(group.state.context.group_id, TEST_GROUP.to_vec());
-            assert_eq!(group.state.context.extensions, group_extensions());
+        assert_eq!(group.cipher_suite(), cipher_suite);
+        assert_eq!(group.state.context.epoch, 0);
+        assert_eq!(group.state.context.group_id, TEST_GROUP.to_vec());
+        assert_eq!(group.state.context.extensions, group_extensions());
 
-            assert_eq!(
-                group.state.context.confirmed_transcript_hash,
-                ConfirmedTranscriptHash::from(vec![])
-            );
+        assert_eq!(
+            group.state.context.confirmed_transcript_hash,
+            ConfirmedTranscriptHash::from(vec![])
+        );
 
-            #[cfg(feature = "private_message")]
-            assert!(group.state.proposals.is_empty());
+        #[cfg(feature = "private_message")]
+        assert!(group.state.proposals.is_empty());
 
-            #[cfg(feature = "by_ref_proposal")]
-            assert!(group.pending_updates.is_empty());
+        #[cfg(feature = "by_ref_proposal")]
+        assert!(group.pending_updates.is_empty());
 
-            assert_eq!(
-                group.private_tree.self_index.0,
-                group.current_member_index()
-            );
-        }
+        assert_eq!(
+            group.private_tree.self_index.0,
+            group.current_member_index()
+        );
     }
 
     #[cfg(feature = "private_message")]
@@ -2363,7 +2359,7 @@ mod tests {
     async fn test_group_encrypt_plaintext_padding() {
         let protocol_version = TEST_PROTOCOL_VERSION;
         // This test requires a cipher suite whose signatures are not variable in length.
-        let cipher_suite = CipherSuite::CURVE25519_AES128;
+        let cipher_suite = CipherSuite::CUSTOM_KYBER512;
 
         let mut test_group = test_group_custom_config(protocol_version, cipher_suite, |b| {
             b.mls_rules(

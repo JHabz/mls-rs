@@ -6,15 +6,21 @@ mod aead;
 mod ec;
 mod ecdsa;
 mod kdf;
+mod kyber;
 
 pub mod x509;
 
 use std::{ffi::c_int, mem::MaybeUninit};
 
 use aead::AwsLcAead;
-use aws_lc_rs::{digest, error::Unspecified, hmac};
+use aws_lc_rs::{
+    digest,
+    error::{KeyRejected, Unspecified},
+    hmac,
+};
 
 use aws_lc_sys::SHA256;
+use kyber::KyberKem;
 use mls_rs_core::{
     crypto::{
         CipherSuite, CipherSuiteProvider, CryptoProvider, HpkeCiphertext, HpkePublicKey,
@@ -31,12 +37,17 @@ use mls_rs_crypto_hpke::{
     dhkem::DhKem,
     hpke::{Hpke, HpkeError},
 };
-use mls_rs_crypto_traits::{AeadType, KdfType, KemId};
+use mls_rs_crypto_traits::{AeadType, KdfType, KemId, KemType};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
 #[derive(Clone, Debug)]
 pub struct AwsLcCryptoProvider {
+    pub enabled_cipher_suites: Vec<CipherSuite>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AwsLcKyberCryptoProvider {
     pub enabled_cipher_suites: Vec<CipherSuite>,
 }
 
@@ -64,49 +75,98 @@ impl AwsLcCryptoProvider {
     }
 }
 
+impl AwsLcKyberCryptoProvider {
+    pub fn new() -> Self {
+        Self {
+            enabled_cipher_suites: Self::all_supported_cipher_suites(),
+        }
+    }
+
+    pub fn with_enabled_cipher_suites(enabled_cipher_suites: Vec<CipherSuite>) -> Self {
+        Self {
+            enabled_cipher_suites,
+        }
+    }
+
+    pub fn all_supported_cipher_suites() -> Vec<CipherSuite> {
+        vec![
+            CipherSuite::CUSTOM_KYBER512,
+            CipherSuite::CUSTOM_KYBER768,
+            CipherSuite::CUSTOM_KYBER1024,
+        ]
+    }
+}
+
 impl Default for AwsLcCryptoProvider {
     fn default() -> Self {
         Self::new()
     }
 }
 
+impl Default for AwsLcKyberCryptoProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone)]
-pub struct AwsLcCipherSuite {
+pub struct AwsLcCipherSuite<KEM> {
     cipher_suite: CipherSuite,
     signing: AwsLcEcdsa,
     aead: AwsLcAead,
     kdf: AwsLcHkdf,
-    hpke: Hpke<DhKem<Ecdh, AwsLcHkdf>, AwsLcHkdf, AwsLcAead>,
+    kem: KEM,
     mac_algo: hmac::Algorithm,
 }
 
-impl AwsLcCipherSuite {
-    pub fn new(cipher_suite: CipherSuite) -> Option<Self> {
-        let kem_id = KemId::new(cipher_suite)?;
-        let kdf = AwsLcHkdf::new(cipher_suite)?;
-        let aead = AwsLcAead::new(cipher_suite)?;
-        let dh = Ecdh::new(cipher_suite)?;
-        let dh_kem = DhKem::new(dh, kdf.clone(), kem_id as u16, kem_id.n_secret());
+fn aws_ls_ciphersuite<KEM>(cipher_suite: CipherSuite, kem: KEM) -> Option<AwsLcCipherSuite<KEM>> {
+    let kdf = AwsLcHkdf::new(cipher_suite)?;
+    let aead = AwsLcAead::new(cipher_suite)?;
 
-        let mac_algo = match cipher_suite {
-            CipherSuite::CURVE25519_AES128
-            | CipherSuite::CURVE25519_CHACHA
-            | CipherSuite::P256_AES128 => hmac::HMAC_SHA256,
-            CipherSuite::P384_AES256 => hmac::HMAC_SHA384,
-            CipherSuite::P521_AES256 => hmac::HMAC_SHA512,
-            _ => return None,
-        };
+    let mac_algo = match cipher_suite {
+        CipherSuite::CURVE25519_AES128
+        | CipherSuite::CURVE25519_CHACHA
+        | CipherSuite::P256_AES128 => hmac::HMAC_SHA256,
+        CipherSuite::P384_AES256 => hmac::HMAC_SHA384,
+        CipherSuite::P521_AES256 => hmac::HMAC_SHA512,
+        _ => return None,
+    };
 
-        Some(Self {
-            cipher_suite,
-            hpke: Hpke::new(dh_kem, kdf.clone(), Some(aead.clone())),
-            aead,
-            kdf,
-            signing: AwsLcEcdsa::new(cipher_suite)?,
-            mac_algo,
-        })
-    }
+    Some(AwsLcCipherSuite {
+        cipher_suite,
+        kem,
+        aead,
+        kdf,
+        signing: AwsLcEcdsa::new(cipher_suite)?,
+        mac_algo,
+    })
+}
 
+fn aws_ls_ciphersuite_dhkem(
+    cipher_suite: CipherSuite,
+) -> Option<AwsLcCipherSuite<DhKem<Ecdh, AwsLcHkdf>>> {
+    let kem_id = KemId::new(cipher_suite)?;
+    let dh = Ecdh::new(cipher_suite)?;
+    let kdf = AwsLcHkdf::new(cipher_suite)?;
+    let dh_kem = DhKem::new(dh, kdf, kem_id as u16, kem_id.n_secret());
+
+    aws_ls_ciphersuite(cipher_suite, dh_kem)
+}
+
+fn aws_ls_ciphersuite_kyber(cipher_suite: CipherSuite) -> Option<AwsLcCipherSuite<KyberKem>> {
+    let standard_cs = match cipher_suite {
+        CipherSuite::CUSTOM_KYBER1024 => CipherSuite::P384_AES256,
+        _ => CipherSuite::CURVE25519_AES128,
+    };
+
+    let mut crypto = aws_ls_ciphersuite(standard_cs, KyberKem::new(cipher_suite)?)?;
+
+    crypto.cipher_suite = cipher_suite;
+
+    Some(crypto)
+}
+
+impl<KEM: KemType + Clone> AwsLcCipherSuite<KEM> {
     pub fn import_ec_der_private_key(
         &self,
         bytes: &[u8],
@@ -120,19 +180,17 @@ impl AwsLcCipherSuite {
     ) -> Result<SignaturePublicKey, AwsLcCryptoError> {
         self.signing.import_ec_der_public_key(bytes)
     }
+
+    fn hpke(&self) -> Hpke<KEM, AwsLcHkdf, AwsLcAead> {
+        Hpke::new(self.kem.clone(), self.kdf, Some(self.aead))
+    }
 }
 
 impl CryptoProvider for AwsLcCryptoProvider {
-    type CipherSuiteProvider = AwsLcCipherSuite;
+    type CipherSuiteProvider = AwsLcCipherSuite<DhKem<Ecdh, AwsLcHkdf>>;
 
     fn supported_cipher_suites(&self) -> Vec<mls_rs_core::crypto::CipherSuite> {
-        vec![
-            CipherSuite::P521_AES256,
-            CipherSuite::P256_AES128,
-            CipherSuite::P384_AES256,
-            CipherSuite::CURVE25519_AES128,
-            CipherSuite::CURVE25519_CHACHA,
-        ]
+        Self::all_supported_cipher_suites()
     }
 
     fn cipher_suite_provider(
@@ -141,7 +199,25 @@ impl CryptoProvider for AwsLcCryptoProvider {
     ) -> Option<Self::CipherSuiteProvider> {
         self.enabled_cipher_suites
             .contains(&cipher_suite)
-            .then(|| AwsLcCipherSuite::new(cipher_suite))
+            .then(|| aws_ls_ciphersuite_dhkem(cipher_suite))
+            .flatten()
+    }
+}
+
+impl CryptoProvider for AwsLcKyberCryptoProvider {
+    type CipherSuiteProvider = AwsLcCipherSuite<KyberKem>;
+
+    fn supported_cipher_suites(&self) -> Vec<mls_rs_core::crypto::CipherSuite> {
+        Self::all_supported_cipher_suites()
+    }
+
+    fn cipher_suite_provider(
+        &self,
+        cipher_suite: mls_rs_core::crypto::CipherSuite,
+    ) -> Option<Self::CipherSuiteProvider> {
+        self.enabled_cipher_suites
+            .contains(&cipher_suite)
+            .then(|| aws_ls_ciphersuite_kyber(cipher_suite))
             .flatten()
     }
 }
@@ -160,6 +236,8 @@ pub enum AwsLcCryptoError {
     UnsupportedCipherSuite,
     #[error("Cert validation error: {0}")]
     CertValidationFailure(String),
+    #[error(transparent)]
+    KeyRejected(#[from] KeyRejected),
 }
 
 impl From<Unspecified> for AwsLcCryptoError {
@@ -176,7 +254,7 @@ impl IntoAnyError for AwsLcCryptoError {}
     all(not(target_arch = "wasm32"), mls_build_async),
     maybe_async::must_be_async
 )]
-impl CipherSuiteProvider for AwsLcCipherSuite {
+impl<KEM: KemType + Clone> CipherSuiteProvider for AwsLcCipherSuite<KEM> {
     type Error = AwsLcCryptoError;
 
     type HpkeContextS = ContextS<AwsLcHkdf, AwsLcAead>;
@@ -256,7 +334,7 @@ impl CipherSuiteProvider for AwsLcCipherSuite {
         aad: Option<&[u8]>,
         pt: &[u8],
     ) -> Result<HpkeCiphertext, Self::Error> {
-        self.hpke
+        self.hpke()
             .seal(remote_key, info, None, aad, pt)
             .await
             .map_err(Into::into)
@@ -270,7 +348,7 @@ impl CipherSuiteProvider for AwsLcCipherSuite {
         info: &[u8],
         aad: Option<&[u8]>,
     ) -> Result<Vec<u8>, Self::Error> {
-        self.hpke
+        self.hpke()
             .open(ciphertext, local_secret, local_public, info, None, aad)
             .await
             .map_err(Into::into)
@@ -281,7 +359,7 @@ impl CipherSuiteProvider for AwsLcCipherSuite {
         remote_key: &HpkePublicKey,
         info: &[u8],
     ) -> Result<(Vec<u8>, Self::HpkeContextS), Self::Error> {
-        self.hpke
+        self.hpke()
             .setup_sender(remote_key, info, None)
             .await
             .map_err(Into::into)
@@ -295,32 +373,26 @@ impl CipherSuiteProvider for AwsLcCipherSuite {
 
         info: &[u8],
     ) -> Result<Self::HpkeContextR, Self::Error> {
-        self.hpke
+        self.hpke()
             .setup_receiver(kem_output, local_secret, local_public, info, None)
             .await
             .map_err(Into::into)
     }
 
     async fn kem_derive(&self, ikm: &[u8]) -> Result<(HpkeSecretKey, HpkePublicKey), Self::Error> {
-        self.hpke.derive(ikm).await.map_err(Into::into)
+        self.hpke().derive(ikm).await.map_err(Into::into)
     }
 
     async fn kem_generate(&self) -> Result<(HpkeSecretKey, HpkePublicKey), Self::Error> {
-        self.hpke.generate().await.map_err(Into::into)
+        self.hpke().generate().await.map_err(Into::into)
     }
 
     fn kem_public_key_validate(&self, key: &HpkePublicKey) -> Result<(), Self::Error> {
-        self.hpke.public_key_validate(key).map_err(Into::into)
+        self.hpke().public_key_validate(key).map_err(Into::into)
     }
 
     fn random_bytes(&self, out: &mut [u8]) -> Result<(), Self::Error> {
-        unsafe {
-            if 1 != aws_lc_sys::RAND_bytes(out.as_mut_ptr(), out.len()) {
-                return Err(Unspecified.into());
-            }
-        }
-
-        Ok(())
+        random_bytes(out)
     }
 
     async fn signature_key_generate(
@@ -390,6 +462,16 @@ fn check_non_null_const<T>(r: *const T) -> Result<*const T, AwsLcCryptoError> {
     Ok(r)
 }
 
+pub(crate) fn random_bytes(out: &mut [u8]) -> Result<(), AwsLcCryptoError> {
+    unsafe {
+        if 1 != aws_lc_sys::RAND_bytes(out.as_mut_ptr(), out.len()) {
+            return Err(Unspecified.into());
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(not(mls_build_async))]
 #[test]
 fn mls_core_tests() {
@@ -399,7 +481,7 @@ fn mls_core_tests() {
         let mut hpke = AwsLcCryptoProvider::new()
             .cipher_suite_provider(cs)
             .unwrap()
-            .hpke;
+            .hpke();
 
         mls_rs_core::crypto::test_suite::verify_hpke_context_tests(&hpke, cs);
         mls_rs_core::crypto::test_suite::verify_hpke_encap_tests(&mut hpke, cs);

@@ -9,7 +9,7 @@ use crate::{
     test_utils::{generate_basic_client, get_test_groups},
 };
 
-pub use mls_rs_crypto_openssl::OpensslCryptoProvider as MlsCryptoProvider;
+pub use mls_rs_crypto_awslc::AwsLcCryptoProvider as MlsCryptoProvider;
 
 pub type TestClientConfig =
     WithIdentityProvider<BasicIdentityProvider, WithCryptoProvider<MlsCryptoProvider, BaseConfig>>;

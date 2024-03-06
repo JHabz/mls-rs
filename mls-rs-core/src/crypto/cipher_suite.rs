@@ -67,6 +67,10 @@ impl CipherSuite {
     /// MLS_256_DHKEMP384_AES256GCM_SHA384_P384
     pub const P384_AES256: CipherSuite = CipherSuite(7);
 
+    pub const CUSTOM_KYBER512: CipherSuite = CipherSuite(65001);
+    pub const CUSTOM_KYBER768: CipherSuite = CipherSuite(65002);
+    pub const CUSTOM_KYBER1024: CipherSuite = CipherSuite(65003);
+
     /// Ciphersuite from a raw value.
     pub const fn new(value: u16) -> CipherSuite {
         CipherSuite(value)

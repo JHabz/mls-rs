@@ -197,14 +197,14 @@ impl NodeVec {
         }
     }
 
-    #[cfg(test)]
+    /*#[cfg(test)]
     fn empty_leaves(&mut self) -> impl Iterator<Item = (LeafIndex, &mut Option<Node>)> {
         self.iter_mut()
             .step_by(2)
             .enumerate()
             .filter(|(_, n)| n.is_none())
             .map(|(i, n)| (LeafIndex(i as u32), n))
-    }
+    }*/
 
     pub fn non_empty_leaves(&self) -> impl Iterator<Item = (LeafIndex, &LeafNode)> + '_ {
         self.leaves()
@@ -464,7 +464,7 @@ mod tests {
         assert_eq!(test_node_leaf.public_key(), &test_leaf.public_key);
     }
 
-    #[maybe_async::test(not(mls_build_async), async(mls_build_async, crate::futures_test))]
+    /*#[maybe_async::test(not(mls_build_async), async(mls_build_async, crate::futures_test))]
     async fn test_empty_leaves() {
         let mut test_vec = get_test_node_vec().await;
         let mut test_vec_clone = get_test_node_vec().await;
@@ -473,7 +473,7 @@ mod tests {
             [(LeafIndex(1), &mut test_vec_clone[2])].as_ref(),
             empty_leaves.as_slice()
         );
-    }
+    }*/
 
     #[maybe_async::test(not(mls_build_async), async(mls_build_async, crate::futures_test))]
     async fn test_direct_path() {

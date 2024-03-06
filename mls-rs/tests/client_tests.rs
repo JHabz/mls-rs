@@ -28,7 +28,7 @@ cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
         use mls_rs_crypto_webcrypto::WebCryptoProvider as TestCryptoProvider;
     } else {
-        use mls_rs_crypto_openssl::OpensslCryptoProvider as TestCryptoProvider;
+        use mls_rs_crypto_awslc::AwsLcKyberCryptoProvider as TestCryptoProvider;
     }
 }
 
@@ -388,8 +388,13 @@ async fn test_application_messages(
 #[cfg(all(feature = "private_message", feature = "out_of_order"))]
 #[maybe_async::test(not(mls_build_async), async(mls_build_async, futures_test))]
 async fn test_out_of_order_application_messages() {
-    let mut groups =
-        get_test_groups(ProtocolVersion::MLS_10, CipherSuite::P256_AES128, 2, false).await;
+    let mut groups = get_test_groups(
+        ProtocolVersion::MLS_10,
+        CipherSuite::CUSTOM_KYBER512,
+        2,
+        false,
+    )
+    .await;
 
     let mut alice_group = groups[0].clone();
     let bob_group = &mut groups[1];
@@ -562,8 +567,13 @@ async fn test_external_commits() {
 
 #[maybe_async::test(not(mls_build_async), async(mls_build_async, futures_test))]
 async fn test_remove_nonexisting_leaf() {
-    let mut groups =
-        get_test_groups(ProtocolVersion::MLS_10, CipherSuite::P256_AES128, 10, false).await;
+    let mut groups = get_test_groups(
+        ProtocolVersion::MLS_10,
+        CipherSuite::CUSTOM_KYBER,
+        10,
+        false,
+    )
+    .await;
 
     groups[0]
         .commit_builder()
@@ -729,7 +739,7 @@ async fn reinit_works() {
 #[maybe_async::test(not(mls_build_async), async(mls_build_async, futures_test))]
 async fn external_joiner_can_process_siblings_update() {
     let mut groups =
-        get_test_groups(ProtocolVersion::MLS_10, CipherSuite::P256_AES128, 3, false).await;
+        get_test_groups(ProtocolVersion::MLS_10, CipherSuite::CUSTOM_KYBER, 3, false).await;
 
     // Remove leaf 1 s.t. the external joiner joins in its place
     let c = groups[0]
@@ -749,7 +759,7 @@ async fn external_joiner_can_process_siblings_update() {
 
     // Create the external joiner and join
     let new_client = generate_client(
-        CipherSuite::P256_AES128,
+        CipherSuite::CUSTOM_KYBER,
         ProtocolVersion::MLS_10,
         0xabba,
         false,
@@ -774,8 +784,13 @@ async fn external_joiner_can_process_siblings_update() {
 
 #[maybe_async::test(not(mls_build_async), async(mls_build_async, futures_test))]
 async fn weird_tree_scenario() {
-    let mut groups =
-        get_test_groups(ProtocolVersion::MLS_10, CipherSuite::P256_AES128, 17, false).await;
+    let mut groups = get_test_groups(
+        ProtocolVersion::MLS_10,
+        CipherSuite::CUSTOM_KYBER,
+        17,
+        false,
+    )
+    .await;
 
     let to_remove = [0u32, 2, 5, 7, 8, 9, 15];
 
@@ -810,11 +825,16 @@ async fn weird_tree_scenario() {
 
 #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
 async fn fake_key_package(id: usize) -> MlsMessage {
-    generate_client(CipherSuite::P256_AES128, ProtocolVersion::MLS_10, id, false)
-        .await
-        .generate_key_package_message()
-        .await
-        .unwrap()
+    generate_client(
+        CipherSuite::CUSTOM_KYBER,
+        ProtocolVersion::MLS_10,
+        id,
+        false,
+    )
+    .await
+    .generate_key_package_message()
+    .await
+    .unwrap()
 }
 
 #[maybe_async::test(not(mls_build_async), async(mls_build_async, futures_test))]

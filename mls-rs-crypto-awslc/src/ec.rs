@@ -21,8 +21,8 @@ use crate::AwsLcCryptoError;
 
 pub(crate) const SUPPORTED_NIST_CURVES: [Curve; 3] = [Curve::P521, Curve::P256, Curve::P384];
 
-#[derive(Clone)]
-pub(crate) struct Ecdh(Curve);
+#[derive(Clone, Copy)]
+pub struct Ecdh(Curve);
 
 impl Ecdh {
     pub fn new(cipher_suite: CipherSuite) -> Option<Self> {

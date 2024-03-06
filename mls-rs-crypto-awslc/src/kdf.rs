@@ -11,7 +11,7 @@ use mls_rs_crypto_traits::KdfId;
 
 use crate::AwsLcCryptoError;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct AwsLcHkdf(KdfId);
 
 impl AwsLcHkdf {
@@ -19,7 +19,7 @@ impl AwsLcHkdf {
         KdfId::new(cipher_suite).map(Self)
     }
 
-    fn hash_function(&self) -> Result<*const EVP_MD, AwsLcCryptoError> {
+    pub(crate) fn hash_function(&self) -> Result<*const EVP_MD, AwsLcCryptoError> {
         match self.0 {
             KdfId::HkdfSha256 => Ok(unsafe { EVP_sha256() }),
             KdfId::HkdfSha384 => Ok(unsafe { EVP_sha384() }),
