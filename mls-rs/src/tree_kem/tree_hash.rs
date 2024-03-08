@@ -169,6 +169,8 @@ impl TreeKemPublic {
     }
 
     #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    // TODO this fixes an incorrect suggestion of nightly clippy. We can remove it once clippy figures it out.
+    #[allow(clippy::assigning_clones)]
     pub(crate) async fn compute_original_hashes<P: CipherSuiteProvider>(
         &self,
         cipher_suite: &P,
