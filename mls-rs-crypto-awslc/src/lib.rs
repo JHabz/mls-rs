@@ -6,7 +6,7 @@ mod aead;
 mod ec;
 mod ecdsa;
 mod kdf;
-mod kyber;
+mod kem;
 
 pub mod x509;
 
@@ -14,24 +14,24 @@ use std::{ffi::c_int, mem::MaybeUninit};
 
 use aead::AwsLcAead;
 use aws_lc_rs::{
-    digest,
+    digest::{self, digest},
     error::{KeyRejected, Unspecified},
     hmac,
 };
 
 use aws_lc_sys::SHA256;
-use kyber::KyberKem;
+use kem::kyber::KyberKem;
 use mls_rs_core::{
     crypto::{
         CipherSuite, CipherSuiteProvider, CryptoProvider, HpkeCiphertext, HpkePublicKey,
         HpkeSecretKey, SignaturePublicKey, SignatureSecretKey,
     },
-    error::IntoAnyError,
+    error::{AnyError, IntoAnyError},
 };
 
-use ec::Ecdh;
 use ecdsa::AwsLcEcdsa;
 use kdf::AwsLcHkdf;
+use kem::ecdh::Ecdh;
 use mls_rs_crypto_hpke::{
     context::{ContextR, ContextS},
     dhkem::DhKem,
@@ -238,6 +238,10 @@ pub enum AwsLcCryptoError {
     CertValidationFailure(String),
     #[error(transparent)]
     KeyRejected(#[from] KeyRejected),
+    #[error(transparent)]
+    CombinedKemError(AnyError),
+    #[error(transparent)]
+    MlsCodecError(#[from] mls_rs_core::mls_rs_codec::Error),
 }
 
 impl From<Unspecified> for AwsLcCryptoError {

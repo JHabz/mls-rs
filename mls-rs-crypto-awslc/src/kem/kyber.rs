@@ -162,6 +162,10 @@ impl KemType for KyberKem {
 
         self.derive(&out)
     }
+
+    fn seed_length_for_derive(&self) -> usize {
+        64
+    }
 }
 
 #[cfg(test)]

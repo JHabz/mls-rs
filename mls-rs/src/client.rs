@@ -829,6 +829,8 @@ mod tests {
             .signing_identity(bob_identity.clone(), secret_key, TEST_CIPHER_SUITE)
             .build();
 
+        let c = TestClientBuilder::new_for_test();
+
         let proposal = bob
             .external_add_proposal(
                 &alice_group.group.group_info_message(true).await.unwrap(),
