@@ -10,11 +10,10 @@ mod kem;
 
 pub mod x509;
 
-use std::{ffi::c_int, mem::MaybeUninit};
+use std::{ffi::c_int, marker::PhantomData, mem::MaybeUninit};
 
 use aead::AwsLcAead;
 use aws_lc_rs::{
-    digest::{self, digest},
     error::{KeyRejected, Unspecified},
     hmac,
 };
@@ -30,84 +29,17 @@ use mls_rs_core::{
 };
 
 use ecdsa::AwsLcEcdsa;
-use kdf::AwsLcHkdf;
+use kdf::{AwsLcHash, AwsLcHkdf, AwsLcShake128, Sha3};
 use kem::ecdh::Ecdh;
 use mls_rs_crypto_hpke::{
     context::{ContextR, ContextS},
     dhkem::DhKem,
     hpke::{Hpke, HpkeError},
+    kem_combiner::{CombinedKem, XWingSharedSecretHashInput},
 };
-use mls_rs_crypto_traits::{AeadType, KdfType, KemId, KemType};
+use mls_rs_crypto_traits::{AeadType, Hash, KdfType, KemId, KemType};
 use thiserror::Error;
 use zeroize::Zeroizing;
-
-#[derive(Clone, Debug)]
-pub struct AwsLcCryptoProvider {
-    pub enabled_cipher_suites: Vec<CipherSuite>,
-}
-
-#[derive(Clone, Debug)]
-pub struct AwsLcKyberCryptoProvider {
-    pub enabled_cipher_suites: Vec<CipherSuite>,
-}
-
-impl AwsLcCryptoProvider {
-    pub fn new() -> Self {
-        Self {
-            enabled_cipher_suites: Self::all_supported_cipher_suites(),
-        }
-    }
-
-    pub fn with_enabled_cipher_suites(enabled_cipher_suites: Vec<CipherSuite>) -> Self {
-        Self {
-            enabled_cipher_suites,
-        }
-    }
-
-    pub fn all_supported_cipher_suites() -> Vec<CipherSuite> {
-        vec![
-            CipherSuite::CURVE25519_AES128,
-            CipherSuite::CURVE25519_CHACHA,
-            CipherSuite::P256_AES128,
-            CipherSuite::P384_AES256,
-            CipherSuite::P521_AES256,
-        ]
-    }
-}
-
-impl AwsLcKyberCryptoProvider {
-    pub fn new() -> Self {
-        Self {
-            enabled_cipher_suites: Self::all_supported_cipher_suites(),
-        }
-    }
-
-    pub fn with_enabled_cipher_suites(enabled_cipher_suites: Vec<CipherSuite>) -> Self {
-        Self {
-            enabled_cipher_suites,
-        }
-    }
-
-    pub fn all_supported_cipher_suites() -> Vec<CipherSuite> {
-        vec![
-            CipherSuite::CUSTOM_KYBER512,
-            CipherSuite::CUSTOM_KYBER768,
-            CipherSuite::CUSTOM_KYBER1024,
-        ]
-    }
-}
-
-impl Default for AwsLcCryptoProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Default for AwsLcKyberCryptoProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 #[derive(Clone)]
 pub struct AwsLcCipherSuite<KEM> {
@@ -117,53 +49,7 @@ pub struct AwsLcCipherSuite<KEM> {
     kdf: AwsLcHkdf,
     kem: KEM,
     mac_algo: hmac::Algorithm,
-}
-
-fn aws_ls_ciphersuite<KEM>(cipher_suite: CipherSuite, kem: KEM) -> Option<AwsLcCipherSuite<KEM>> {
-    let kdf = AwsLcHkdf::new(cipher_suite)?;
-    let aead = AwsLcAead::new(cipher_suite)?;
-
-    let mac_algo = match cipher_suite {
-        CipherSuite::CURVE25519_AES128
-        | CipherSuite::CURVE25519_CHACHA
-        | CipherSuite::P256_AES128 => hmac::HMAC_SHA256,
-        CipherSuite::P384_AES256 => hmac::HMAC_SHA384,
-        CipherSuite::P521_AES256 => hmac::HMAC_SHA512,
-        _ => return None,
-    };
-
-    Some(AwsLcCipherSuite {
-        cipher_suite,
-        kem,
-        aead,
-        kdf,
-        signing: AwsLcEcdsa::new(cipher_suite)?,
-        mac_algo,
-    })
-}
-
-fn aws_ls_ciphersuite_dhkem(
-    cipher_suite: CipherSuite,
-) -> Option<AwsLcCipherSuite<DhKem<Ecdh, AwsLcHkdf>>> {
-    let kem_id = KemId::new(cipher_suite)?;
-    let dh = Ecdh::new(cipher_suite)?;
-    let kdf = AwsLcHkdf::new(cipher_suite)?;
-    let dh_kem = DhKem::new(dh, kdf, kem_id as u16, kem_id.n_secret());
-
-    aws_ls_ciphersuite(cipher_suite, dh_kem)
-}
-
-fn aws_ls_ciphersuite_kyber(cipher_suite: CipherSuite) -> Option<AwsLcCipherSuite<KyberKem>> {
-    let standard_cs = match cipher_suite {
-        CipherSuite::CUSTOM_KYBER1024 => CipherSuite::P384_AES256,
-        _ => CipherSuite::CURVE25519_AES128,
-    };
-
-    let mut crypto = aws_ls_ciphersuite(standard_cs, KyberKem::new(cipher_suite)?)?;
-
-    crypto.cipher_suite = cipher_suite;
-
-    Some(crypto)
+    hash: AwsLcHash,
 }
 
 impl<KEM: KemType + Clone> AwsLcCipherSuite<KEM> {
@@ -186,39 +72,157 @@ impl<KEM: KemType + Clone> AwsLcCipherSuite<KEM> {
     }
 }
 
-impl CryptoProvider for AwsLcCryptoProvider {
-    type CipherSuiteProvider = AwsLcCipherSuite<DhKem<Ecdh, AwsLcHkdf>>;
+#[derive(Clone, Debug)]
+pub struct AwsLcCryptoProvider<KEM: Clone> {
+    pub enabled_cipher_suites: Vec<CipherSuite>,
+    _phantom: PhantomData<KEM>,
+}
 
-    fn supported_cipher_suites(&self) -> Vec<mls_rs_core::crypto::CipherSuite> {
-        Self::all_supported_cipher_suites()
+pub type AwsLcCryptoClassicalProvider = AwsLcCryptoProvider<DhKem<Ecdh, AwsLcHkdf>>;
+
+pub type CombinedEcdhKyberKem = CombinedKem<
+    KyberKem,
+    DhKem<Ecdh, AwsLcHkdf>,
+    AwsLcHash,
+    AwsLcShake128,
+    XWingSharedSecretHashInput,
+>;
+
+pub type AwsLcCryptoPqProvider = AwsLcCryptoProvider<CombinedEcdhKyberKem>;
+
+impl AwsLcCryptoPqProvider {
+    pub fn new_pq() -> Self {
+        Self {
+            enabled_cipher_suites: Self::all_supported_cipher_suites(),
+            _phantom: PhantomData,
+        }
     }
 
-    fn cipher_suite_provider(
-        &self,
-        cipher_suite: mls_rs_core::crypto::CipherSuite,
-    ) -> Option<Self::CipherSuiteProvider> {
-        self.enabled_cipher_suites
-            .contains(&cipher_suite)
-            .then(|| aws_ls_ciphersuite_dhkem(cipher_suite))
-            .flatten()
+    pub fn all_supported_cipher_suites() -> Vec<CipherSuite> {
+        vec![
+            CipherSuite::KYBER768_X25519, // We don't have numbers for others
+        ]
+    }
+}
+impl AwsLcCryptoClassicalProvider {
+    pub fn new() -> Self {
+        Self {
+            enabled_cipher_suites: Self::all_supported_cipher_suites(),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn all_supported_cipher_suites() -> Vec<CipherSuite> {
+        vec![
+            CipherSuite::CURVE25519_AES128,
+            CipherSuite::CURVE25519_CHACHA,
+            CipherSuite::P256_AES128,
+            CipherSuite::P384_AES256,
+            CipherSuite::P521_AES256,
+        ]
+    }
+
+    fn kem(cipher_suite: CipherSuite) -> Option<DhKem<Ecdh, AwsLcHkdf>> {
+        Self::dhkem(cipher_suite)
     }
 }
 
-impl CryptoProvider for AwsLcKyberCryptoProvider {
-    type CipherSuiteProvider = AwsLcCipherSuite<KyberKem>;
+impl<KEM: Clone> AwsLcCryptoProvider<KEM> {
+    pub fn with_enabled_cipher_suites(enabled_cipher_suites: Vec<CipherSuite>) -> Self {
+        Self {
+            enabled_cipher_suites,
+            _phantom: PhantomData,
+        }
+    }
 
-    fn supported_cipher_suites(&self) -> Vec<mls_rs_core::crypto::CipherSuite> {
-        Self::all_supported_cipher_suites()
+    fn cipher_suite_provider_internal(
+        &self,
+        classical_cipher_suite: CipherSuite,
+        kem: KEM,
+        cipher_suite: CipherSuite,
+    ) -> Option<AwsLcCipherSuite<KEM>> {
+        let kdf = AwsLcHkdf::new(classical_cipher_suite)?;
+        let aead = AwsLcAead::new(classical_cipher_suite)?;
+
+        let mac_algo = match classical_cipher_suite {
+            CipherSuite::CURVE25519_AES128
+            | CipherSuite::CURVE25519_CHACHA
+            | CipherSuite::P256_AES128 => hmac::HMAC_SHA256,
+            CipherSuite::P384_AES256 => hmac::HMAC_SHA384,
+            CipherSuite::P521_AES256 => hmac::HMAC_SHA512,
+            _ => return None,
+        };
+
+        Some(AwsLcCipherSuite {
+            cipher_suite,
+            kem,
+            aead,
+            kdf,
+            signing: AwsLcEcdsa::new(classical_cipher_suite)?,
+            mac_algo,
+            hash: AwsLcHash::new(classical_cipher_suite)?,
+        })
+    }
+
+    fn dhkem(cipher_suite: CipherSuite) -> Option<DhKem<Ecdh, AwsLcHkdf>> {
+        let kem_id = KemId::new(cipher_suite)?;
+        let dh = Ecdh::new(cipher_suite)?;
+        let kdf = AwsLcHkdf::new(cipher_suite)?;
+
+        Some(DhKem::new(dh, kdf, kem_id as u16, kem_id.n_secret()))
+    }
+}
+
+impl CryptoProvider for AwsLcCryptoProvider<CombinedEcdhKyberKem> {
+    type CipherSuiteProvider = AwsLcCipherSuite<CombinedEcdhKyberKem>;
+
+    fn supported_cipher_suites(&self) -> Vec<CipherSuite> {
+        self.enabled_cipher_suites.clone()
     }
 
     fn cipher_suite_provider(
         &self,
-        cipher_suite: mls_rs_core::crypto::CipherSuite,
+        cipher_suite: CipherSuite,
     ) -> Option<Self::CipherSuiteProvider> {
-        self.enabled_cipher_suites
-            .contains(&cipher_suite)
-            .then(|| aws_ls_ciphersuite_kyber(cipher_suite))
-            .flatten()
+        let classical_cs = match cipher_suite {
+            CipherSuite::KYBER1024 => CipherSuite::P384_AES256,
+            _ => CipherSuite::CURVE25519_AES128,
+        };
+
+        let pq_cs = match cipher_suite {
+            CipherSuite::KYBER768_X25519 => CipherSuite::KYBER768,
+            _ => return None,
+        };
+
+        let kem = CombinedKem::new_xwing(
+            KyberKem::new(pq_cs)?,
+            Self::dhkem(classical_cs)?,
+            AwsLcHash::new_sha3(Sha3::SHA3_256)?,
+            AwsLcShake128,
+        );
+
+        self.cipher_suite_provider_internal(classical_cs, kem, cipher_suite)
+    }
+}
+
+impl Default for AwsLcCryptoPqProvider {
+    fn default() -> Self {
+        Self::new_pq()
+    }
+}
+
+impl CryptoProvider for AwsLcCryptoProvider<DhKem<Ecdh, AwsLcHkdf>> {
+    type CipherSuiteProvider = AwsLcCipherSuite<DhKem<Ecdh, AwsLcHkdf>>;
+
+    fn supported_cipher_suites(&self) -> Vec<CipherSuite> {
+        self.enabled_cipher_suites.clone()
+    }
+
+    fn cipher_suite_provider(
+        &self,
+        cipher_suite: CipherSuite,
+    ) -> Option<Self::CipherSuiteProvider> {
+        self.cipher_suite_provider_internal(cipher_suite, Self::kem(cipher_suite)?, cipher_suite)
     }
 }
 
@@ -269,9 +273,7 @@ impl<KEM: KemType + Clone> CipherSuiteProvider for AwsLcCipherSuite<KEM> {
     }
 
     async fn hash(&self, data: &[u8]) -> Result<Vec<u8>, Self::Error> {
-        Ok(digest::digest(self.mac_algo.digest_algorithm(), data)
-            .as_ref()
-            .to_vec())
+        self.hash.hash(data)
     }
 
     async fn mac(&self, key: &[u8], data: &[u8]) -> Result<Vec<u8>, Self::Error> {

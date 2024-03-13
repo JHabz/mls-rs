@@ -21,7 +21,7 @@ use mockall::automock;
     maybe_async::must_be_async
 )]
 #[cfg_attr(feature = "mock", automock(type Error = crate::mock::TestError;))]
-pub trait KemType: Send + Sync {
+pub trait KemType: Send + Sync + Sized {
     type Error: IntoAnyError + Send + Sync;
 
     /// KEM Id, as specified in RFC 9180, Section 5.1 and Table 2.
@@ -41,6 +41,7 @@ pub trait KemType: Send + Sync {
     ) -> Result<Vec<u8>, Self::Error>;
 
     fn seed_length_for_derive(&self) -> usize;
+    //fn public_key_size(&self) -> usize;
 }
 
 /// Struct to represent the output of the kem [encap](KemType::encap) function

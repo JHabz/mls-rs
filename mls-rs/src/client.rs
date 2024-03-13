@@ -717,7 +717,7 @@ pub(crate) mod test_utils {
     pub use crate::client_builder::test_utils::{TestClientBuilder, TestClientConfig};
 
     pub const TEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MLS_10;
-    pub const TEST_CIPHER_SUITE: CipherSuite = CipherSuite::CUSTOM_KYBER512;
+    pub const TEST_CIPHER_SUITE: CipherSuite = CipherSuite::KYBER512;
     pub const TEST_CUSTOM_PROPOSAL_TYPE: ProposalType = ProposalType::new(65001);
 
     #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]

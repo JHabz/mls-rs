@@ -1915,7 +1915,7 @@ mod tests {
     #[maybe_async::test(not(mls_build_async), async(mls_build_async, crate::futures_test))]
     async fn test_create_group() {
         let protocol_version = ProtocolVersion::MLS_10;
-        let cipher_suite = CipherSuite::CUSTOM_KYBER512;
+        let cipher_suite = CipherSuite::KYBER512;
         let test_group = test_group(protocol_version, cipher_suite).await;
         let group = test_group.group;
 
@@ -2359,7 +2359,7 @@ mod tests {
     async fn test_group_encrypt_plaintext_padding() {
         let protocol_version = TEST_PROTOCOL_VERSION;
         // This test requires a cipher suite whose signatures are not variable in length.
-        let cipher_suite = CipherSuite::CUSTOM_KYBER512;
+        let cipher_suite = CipherSuite::KYBER512;
 
         let mut test_group = test_group_custom_config(protocol_version, cipher_suite, |b| {
             b.mls_rules(

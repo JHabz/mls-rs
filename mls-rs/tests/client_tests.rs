@@ -28,7 +28,7 @@ cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
         use mls_rs_crypto_webcrypto::WebCryptoProvider as TestCryptoProvider;
     } else {
-        use mls_rs_crypto_awslc::AwsLcKyberCryptoProvider as TestCryptoProvider;
+        use mls_rs_crypto_awslc::AwsLcCryptoPqProvider as TestCryptoProvider;
     }
 }
 
@@ -388,13 +388,8 @@ async fn test_application_messages(
 #[cfg(all(feature = "private_message", feature = "out_of_order"))]
 #[maybe_async::test(not(mls_build_async), async(mls_build_async, futures_test))]
 async fn test_out_of_order_application_messages() {
-    let mut groups = get_test_groups(
-        ProtocolVersion::MLS_10,
-        CipherSuite::CUSTOM_KYBER512,
-        2,
-        false,
-    )
-    .await;
+    let mut groups =
+        get_test_groups(ProtocolVersion::MLS_10, CipherSuite::KYBER512, 2, false).await;
 
     let mut alice_group = groups[0].clone();
     let bob_group = &mut groups[1];
@@ -569,7 +564,7 @@ async fn test_external_commits() {
 async fn test_remove_nonexisting_leaf() {
     let mut groups = get_test_groups(
         ProtocolVersion::MLS_10,
-        CipherSuite::CUSTOM_KYBER,
+        CipherSuite::KYBER768_X25519,
         10,
         false,
     )
@@ -594,7 +589,7 @@ async fn test_remove_nonexisting_leaf() {
 #[cfg(feature = "psk")]
 #[maybe_async::test(not(mls_build_async), async(mls_build_async, futures_test))]
 async fn reinit_works() {
-    let suite1 = CipherSuite::P256_AES128;
+    let suite1 = CipherSuite::KYBER768_X25519;
 
     let Some(suite2) = CipherSuite::all()
         .find(|cs| cs != &suite1 && TestCryptoProvider::all_supported_cipher_suites().contains(cs))
@@ -676,7 +671,7 @@ async fn reinit_works() {
     assert!(res.is_err());
 
     // Get reinit clients for alice and bob
-    let (secret_key, public_key) = TestCryptoProvider::new()
+    let (secret_key, public_key) = TestCryptoProvider::default()
         .cipher_suite_provider(suite2)
         .unwrap()
         .signature_key_generate()
@@ -689,7 +684,7 @@ async fn reinit_works() {
         .get_reinit_client(Some(secret_key), Some(identity))
         .unwrap();
 
-    let (secret_key, public_key) = TestCryptoProvider::new()
+    let (secret_key, public_key) = TestCryptoProvider::default()
         .cipher_suite_provider(suite2)
         .unwrap()
         .signature_key_generate()
@@ -738,8 +733,13 @@ async fn reinit_works() {
 #[cfg(feature = "by_ref_proposal")]
 #[maybe_async::test(not(mls_build_async), async(mls_build_async, futures_test))]
 async fn external_joiner_can_process_siblings_update() {
-    let mut groups =
-        get_test_groups(ProtocolVersion::MLS_10, CipherSuite::CUSTOM_KYBER, 3, false).await;
+    let mut groups = get_test_groups(
+        ProtocolVersion::MLS_10,
+        CipherSuite::KYBER768_X25519,
+        3,
+        false,
+    )
+    .await;
 
     // Remove leaf 1 s.t. the external joiner joins in its place
     let c = groups[0]
@@ -759,7 +759,7 @@ async fn external_joiner_can_process_siblings_update() {
 
     // Create the external joiner and join
     let new_client = generate_client(
-        CipherSuite::CUSTOM_KYBER,
+        CipherSuite::KYBER768_X25519,
         ProtocolVersion::MLS_10,
         0xabba,
         false,
@@ -786,7 +786,7 @@ async fn external_joiner_can_process_siblings_update() {
 async fn weird_tree_scenario() {
     let mut groups = get_test_groups(
         ProtocolVersion::MLS_10,
-        CipherSuite::CUSTOM_KYBER,
+        CipherSuite::KYBER768_X25519,
         17,
         false,
     )
@@ -826,7 +826,7 @@ async fn weird_tree_scenario() {
 #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
 async fn fake_key_package(id: usize) -> MlsMessage {
     generate_client(
-        CipherSuite::CUSTOM_KYBER,
+        CipherSuite::KYBER768_X25519,
         ProtocolVersion::MLS_10,
         id,
         false,
@@ -839,7 +839,7 @@ async fn fake_key_package(id: usize) -> MlsMessage {
 
 #[maybe_async::test(not(mls_build_async), async(mls_build_async, futures_test))]
 async fn external_info_from_commit_allows_to_join() {
-    let cs = CipherSuite::P256_AES128;
+    let cs = CipherSuite::KYBER768_X25519;
     let version = ProtocolVersion::MLS_10;
 
     let mut alice = mls_rs::test_utils::get_test_groups(
@@ -863,4 +863,11 @@ async fn external_info_from_commit_allows_to_join() {
         .unwrap();
 
     alice.process_incoming_message(commit).await.unwrap();
+}
+
+#[test]
+fn kyber() {
+    let cs = CipherSuite::KYBER768_X25519;
+
+    let alice = get_test_groups(ProtocolVersion::MLS_10, cs, 1, false).remove(0);
 }
