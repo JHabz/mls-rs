@@ -9,7 +9,7 @@ use crate::{
     test_utils::{generate_basic_client, get_test_groups},
 };
 
-pub use mls_rs_crypto_awslc::AwsLcCryptoProvider as MlsCryptoProvider;
+pub use mls_rs_crypto_awslc::AwsLcCryptoPqProvider as MlsCryptoProvider;
 
 pub type TestClientConfig =
     WithIdentityProvider<BasicIdentityProvider, WithCryptoProvider<MlsCryptoProvider, BaseConfig>>;
@@ -64,7 +64,7 @@ async fn generate_test_cases(cs: CipherSuite) -> Vec<MlsMessage> {
             size,
             None,
             false,
-            &MlsCryptoProvider::new(),
+            &MlsCryptoProvider::new_pq(),
         )
         .await
         .pop()
@@ -112,7 +112,7 @@ pub async fn join_group(cs: CipherSuite, group_info: MlsMessage) -> GroupStates<
         99999999999,
         None,
         false,
-        &MlsCryptoProvider::new(),
+        &MlsCryptoProvider::new_pq(),
     );
 
     let mut sender = client.commit_external(group_info).await.unwrap().0;
@@ -123,7 +123,7 @@ pub async fn join_group(cs: CipherSuite, group_info: MlsMessage) -> GroupStates<
         99999999998,
         None,
         false,
-        &MlsCryptoProvider::new(),
+        &MlsCryptoProvider::new_pq(),
     );
 
     let group_info = sender
