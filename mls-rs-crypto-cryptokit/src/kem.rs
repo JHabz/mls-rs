@@ -13,17 +13,19 @@ use mls_rs_core::{
     error::IntoAnyError,
 };
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum KemError {
-    #[error("unsupported cipher suite")]
+    #[cfg_attr(feature = "std", error("unsupported cipher suite"))]
     UnsupportedCipherSuite,
-    #[error("invalid public key")]
+    #[cfg_attr(feature = "std", error("invalid public key"))]
     InvalidPublicKey,
-    #[error("CryptoKit error")]
+    #[cfg_attr(feature = "std", error("CryptoKit error"))]
     CryptoKitError,
 }
 
 impl IntoAnyError for KemError {
+    #[cfg(feature = "std")]
     fn into_dyn_error(self) -> Result<Box<dyn std::error::Error + Send + Sync>, Self> {
         Ok(self.into())
     }

@@ -5,21 +5,26 @@
 use mls_rs_core::{crypto::CipherSuite, error::IntoAnyError};
 use mls_rs_crypto_traits::{KdfId, KdfType};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum KdfError {
-    #[error("invalid prk length")]
+    #[cfg_attr(feature = "std", error("invalid prk length"))]
     InvalidPrkLength,
-    #[error("invalid length")]
+    #[cfg_attr(feature = "std", error("invalid length"))]
     InvalidLength,
-    #[error("the provided length of the key {0} is shorter than the minimum length {1}")]
+    #[cfg_attr(
+        feature = "std",
+        error("the provided length of the key {0} is shorter than the minimum length {1}")
+    )]
     TooShortKey(usize, usize),
-    #[error("unsupported cipher suite")]
+    #[cfg_attr(feature = "std", error("unsupported cipher suite"))]
     UnsupportedCipherSuite,
-    #[error("CryptoKit error")]
+    #[cfg_attr(feature = "std", error("CryptoKit error"))]
     CryptoKitError,
 }
 
 impl IntoAnyError for KdfError {
+    #[cfg(feature = "std")]
     fn into_dyn_error(self) -> Result<Box<dyn std::error::Error + Send + Sync>, Self> {
         Ok(self.into())
     }

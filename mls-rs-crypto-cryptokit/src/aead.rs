@@ -10,23 +10,34 @@ use core::fmt::Debug;
 use mls_rs_core::{crypto::CipherSuite, error::IntoAnyError};
 use mls_rs_crypto_traits::{AeadId, AeadType, AES_TAG_LEN};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum AeadError {
-    #[error("AEAD ciphertext of length {0} is too short to fit the tag")]
+    #[cfg_attr(
+        feature = "std",
+        error("AEAD ciphertext of length {0} is too short to fit the tag")
+    )]
     InvalidCipherLen(usize),
-    #[error("encrypted message cannot be empty")]
+    #[cfg_attr(feature = "std", error("encrypted message cannot be empty"))]
     EmptyPlaintext,
-    #[error("AEAD key of invalid length {0}. Expected length {1}")]
+    #[cfg_attr(
+        feature = "std",
+        error("AEAD key of invalid length {0}. Expected length {1}")
+    )]
     InvalidKeyLen(usize, usize),
-    #[error("AEAD nonce of invalid length {0}. Expected length {1}")]
+    #[cfg_attr(
+        feature = "std",
+        error("AEAD nonce of invalid length {0}. Expected length {1}")
+    )]
     InvalidNonceLen(usize, usize),
-    #[error("unsupported cipher suite")]
+    #[cfg_attr(feature = "std", error("unsupported cipher suite"))]
     UnsupportedCipherSuite,
-    #[error("CryptoKit error")]
+    #[cfg_attr(feature = "std", error("CryptoKit error"))]
     CryptoKitError,
 }
 
 impl IntoAnyError for AeadError {
+    #[cfg(feature = "std")]
     fn into_dyn_error(self) -> Result<Box<dyn std::error::Error + Send + Sync>, Self> {
         Ok(self.into())
     }

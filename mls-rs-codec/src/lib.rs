@@ -18,7 +18,6 @@ pub mod byte_vec;
 
 pub mod iter;
 
-mod bool;
 mod cow;
 mod map;
 mod option;
