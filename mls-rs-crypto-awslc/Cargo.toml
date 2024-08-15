@@ -9,7 +9,7 @@ keywords = ["mls", "mls-rs", "aws-lc"]
 license = "Apache-2.0 OR MIT"
 
 [features]
-default = ["post-quantum"]
+default = []
 post-quantum = ["aws-lc-rs/unstable", "mls-rs-core/post-quantum"]
 
 [dependencies]
